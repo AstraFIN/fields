@@ -1,0 +1,242 @@
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators #-}
+
+-- | Using records, especially nested records, in Haskell can sometimes be
+-- a bit of a chore. Fortunately, there are several libraries in hackage
+-- to make working with records easier. This library is my attempt to
+-- build on top of these libraries to make working with records even
+-- more pleasant!
+--
+-- In most imperative languages, records are accessed using the infix
+-- dot operator. Record fields can be read simply by suffixing a record
+-- value with '.field' and they can be modified by simply assigning to
+-- that location. Although this is not the only way to access records
+-- (indeed, Haskell does not use it), many people (including myself)
+-- like it. This library attempts to support this style for Haskell
+-- records in the following manner:
+--
+-- > record.field.subfield      becomes     record .# field # subfield
+-- > record.field = value       becomes     record .# field =: value
+--
+-- Of course, the infix assignment in Haskell is pure and doesn't
+-- actually mutate anything. Rather, a modified version of the record is
+-- returned. 
+--
+-- Below, a detailed and commented usage example is presented.
+--
+-- > import Data.Record.Field
+-- > import Data.Record.Label hiding ((=:))
+--
+-- Currently, @"fields"@ is built on top of @"fclabels"@, so we import
+-- that package as well. We hide the @(=:)@ operator because that
+-- operator is also used by @"fields"@ itself. 
+--
+-- First, let's define some example data types and derive lenses for
+-- them using @"fclabels"@.
+--
+-- > data Person = Person
+-- >      { _firstName :: String
+-- >      , _lastName  :: String
+-- >      , _age       :: Int
+-- >      , _superior  :: Maybe Person
+-- >      } deriving Show
+-- > 
+-- > data Book = Book
+-- >      { _title      :: String
+-- >      , _author     :: Person
+-- >      , _characters :: [Person]
+-- >      } deriving Show
+-- > 
+-- > $(mkLabels [''Person, ''Book])
+--
+-- Now, let's define some example data.
+--
+-- > howard  = Person "Howard"  "Lovecraft" 46 Nothing
+-- > charles = Person "Charles" "Ward"      26 Nothing
+-- > marinus = Person "Marinus" "Willett"   56 Nothing
+-- > william = Person "William" "Dyer"      53 Nothing
+-- > frank   = Person "Frank"   "Pabodie"   49 Nothing
+-- > herbert = Person "Herbert" "West"      32 Nothing
+-- > abdul   = Person "Abdul"   "Alhazred"  71 Nothing
+-- >
+-- > mountains    = Book "At the Mountains of Madness"     undefined []
+-- > caseOfCDW    = Book "The Case of Charles Dexter Ward" undefined []
+-- > reanimator   = Book "Herbert West -- The Re-animator" undefined []
+-- > necronomicon = Book "Necronomicon"                    undefined []
+-- >
+-- > persons = [howard, charles, marinus, herbert, william, frank, abdul]
+-- > books   = [mountains, caseOfCDW, reanimator, necronomicon]
+--
+-- Now, to look up a book's title, we can use the @('.#')@ operator,
+-- which is the basis of all @"fields"@ functionality. @('.#')@ takes a
+-- value of type @a@ and a @'Field'@ from @a@ to some other type (in
+-- this case, 'String') and returns the value of that field. Since an
+-- @"fclabels"@ lens is an instance of @'Field'@, we can just use the
+-- lens directly.
+--
+-- > necronomicon .# title
+-- > -- :: String
+--
+-- The @author@ field, however, was left undefined in the above
+-- definition. We can set it using the @(=:)@ operator
+--
+-- > necronomicon .# author =: abdul
+-- > -- :: Book
+--
+-- A notable detail is that the above expression parenthesizes as
+-- @necronomicon .# (author =: abdul)@. The @(=:)@ operator takes a
+-- @'Field'@ and a value for that @'Field'@ and returns a new @'Field'@
+-- that, when read, returns a modified version of the record.
+--
+-- For the sake of the example, I will assume here that the subsequent
+-- references to @necronomicon@ refer to this modified version (and
+-- similarly for all other assignment examples below), even though
+-- nothing is mutated in reality.
+--
+-- The @('=~')@ operator is similar, except that instead of a value, it
+-- takes a function that modifies the previous value. For example
+--
+-- > howard .# age =~ succ
+-- > -- :: Person
+--
+-- To access fields in nested records, @'Field'@s can be composed using
+-- the @('#')@ combinator.
+--
+-- > necronomicon .# author # lastName
+-- > -- :: String
+--
+-- If we wish to access a field of several records at once, we can use
+-- the @('<.#>')@ operator, which can be used to access fields of
+-- a record inside a @'Functor'@. For example
+--
+-- > persons <.#> age
+-- > -- :: [Int]
+--
+-- This also works for assignment. For example, let's fix the @author@
+-- fields of the rest of our books.
+--
+-- > [mountains, caseOfCDW, reanimator ] <.#> author =: howard
+-- > -- :: [Book]
+--
+-- Because @('<.#>')@ works for any @'Functor'@, we could access values
+-- of type @Maybe Book@, @a -> Book@ or @IO Book@ similarly.
+--
+-- We frequently wish to access several fields of a record
+-- simultaneously. @"fields"@ supports this using tuples. A tuple of
+-- primitive @'Field'@s (currently, \"primitive @'Field'@\" means an
+-- @"fclabels"@ lens) is itself a @'Field'@, provided that all the
+-- @'Field'@s in the tuple have the same source type (ie. you can
+-- combine @Book :-> String@ and @Book :-> Int@ but not @Book :->
+-- String@ and @Person :-> String@). For example, we could do
+--
+-- > howard .# (firstName, lastName, age)
+-- > -- :: (String, String, Int)
+--
+-- @"fields"@ defines instances for tuples of up to 10 elements. In
+-- addition, the 2-tuple instance is recursively defined so that a tuple
+-- @(a, b)@ is a @'Field'@ if @a@ is a primitive @'Field'@ and @b@ is
+-- /any/ valid field. This makes it possible to do 
+--
+-- > howard .# (firstName, (lastName, age)) =~ (reverse *** reverse *** negate)
+-- > -- :: Person
+--
+-- We can also compose a @'Field'@ with a pure function (for example, a
+-- regular record field accessor function) using the @('#$')@
+-- combinator. However, since a function is one-way, the resulting
+-- @'Field'@ cannot be used to set values, and trying to do so will
+-- result in an @'error'@.
+--
+-- > howard .# lastName #$ length
+-- > -- :: Int
+--
+-- If we wish to set fields of several records at once, but so that
+-- we can also specify the value individually for each record, we can
+-- use the @('*#')@ and @('=*')@ operators, which can be thought of as
+-- \"zippy\" assignment. They can be used like this
+--
+-- > [ mountains, caseOfCDW, reanimator ] *# characters =*
+-- >     [ [ william, frank ]
+-- >     , [ charles, marinus ]
+-- >     , [ herbert ] ]
+-- > -- :: [Book]
+--
+-- For more complex queries, @"fields"@ also provides the @('<#>')@ and
+-- @('<##>')@ combinators. @('<#>')@ combines a @'Field'@ of type @a :->
+-- f b@ with a field of type @b :-> c@, producing a @'Field'@ of type @a
+-- :-> f c@, where @f@ is any @'Applicative'@ functor.
+--
+-- > mountains .# characters <#> (lastName, age)
+-- > -- :: [(String, Int)]
+--
+-- @('<##>')@ is similar, except that flattens two monadic @'Field'@s
+-- together. I.e. the type signature is @a :-> m b -> b :-> m c -> a :->
+-- m c@. For example
+--
+-- > frank .# superior <##> superior <##> superior
+-- > -- :: Maybe Person
+--
+-- Both @('<#>')@ and @('<##>')@ also support assignment normally,
+-- although the exact semantics vary depending on the @'Applicative'@ or
+-- @'Monad'@ in question.
+--
+-- We might also like to sort or otherwise manipulate collections of
+-- records easily. For this, @"fields"@ provides the @'onField'@
+-- combinator in the manner of @'Data.Function.on'@. For example, to sort
+-- a list of books by their authors' last names, we can use
+--
+-- > sortBy (compare `onField` author # lastName) books
+-- > -- :: [Book]
+--
+-- Using tuples, we can also easily define sub-orderings. For example,
+-- if we wish to break ties based on the authors' first names and then
+-- by ages, we can use
+--
+-- > sortBy (compare `onField` author # (lastName, firstName, age)) books
+-- > -- :: [Book]
+--
+-- Since @'onField'@ accepts any @'Field'@, we can easily specify more
+-- complex criteria. To sort a list of books by the sum of their
+-- characters' ages (which is a bit silly), we could use
+--
+-- > sortBy (compare `onField` (characters <#> age) #$ sum) books
+-- > -- :: [Book]
+--
+-- @"fields"@ also attempts to support convenient pattern matching by
+-- means of the @'match'@ function and GHC's @ViewPatterns@ extension.
+-- To pattern match on records, you could do something like this
+--
+-- > case charles of
+-- >      (match lastName        -> "Dexter")    -> Left False
+-- >      (match lastName        -> "Ward")      -> Left True
+-- >      (match (age, superior) -> (a, Just s))
+-- >         | a > 18                            -> Right a
+-- >         | otherwise                         -> Right (s .# age)
+-- > -- :: Either Bool Int
+--
+-- Finally, a pair of combinators is provided to access record fields of
+-- collection types. The @(#!)@ combinator has the type @a :-> c b ->
+-- i -> a :-> Maybe b@, where @c@ is an instance of @'Indexable'@ and
+-- @i@ is an index type suitable for @c@. For example, you can use an
+-- @'Integral'@ value to index a @'String'@ and a value of type @k@ to
+-- index a @Map k v@. The @(#!!)@ combinator is also provided. It
+-- doesn't have @Maybe@ in the return type, so using a bad index will
+-- usually result in an @'error'@.
+--
+-- Currently, instances are provided for @[a]@, @'Data.Map'@,
+-- @'Data.IntMap'@, @'Data.Array.IArray'@, @'Data.Set'@ and
+-- @'Data.IntSet'@.
+module Data.Record.Field
+    ( module Data.Record.Field.Basic
+    , module Data.Record.Field.Tuple
+    , module Data.Record.Field.Indexable
+    , module Data.Record.Field.Combinators
+    ) where
+
+import Data.Record.Field.Basic
+import Data.Record.Field.Tuple
+import Data.Record.Field.Indexable
+import Data.Record.Field.Combinators
+
