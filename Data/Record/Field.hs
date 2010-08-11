@@ -103,7 +103,7 @@
 -- > -- :: Person
 --
 -- To access fields in nested records, @'Field'@s can be composed using
--- the @('#')@ combinator.
+-- the @(#)@ combinator.
 --
 -- > necronomicon .# author # lastName
 -- > -- :: String
