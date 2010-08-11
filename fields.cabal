@@ -38,10 +38,25 @@ Description:         Using records, especially nested records, in
                      and doesn't actually mutate anything. Rather, a
                      modified version of the record is returned.
                      .
-                     In addition, several combinators for first-class
-                     record fields are provided, e.g. for easily
-                     handling @'Functor'@s, @'Applicative'@s and
-                     @'Monad'@s.
+                     In addition, the following features are supported:
+                     .
+                      * Accessing several fields simultaneously using
+                        tuples.
+                        Example: @record .# (field1, field2, field3)@
+                     .
+                      * Accessing records inside a @'Functor'@.
+                        Example: @recordInFunctor \<.#\> field@
+                     .
+                      * Composing fields with @'Applicative'@ functors
+                        and @'Monad'@s.
+                        Example: @record .\# applicativeField \<\#\> subfield@
+                     .
+                      * Pattern matching using @ViewPatterns@.
+                        Example: @case record of (match field -> 1) -> ...@
+                     .
+                      * Easy comparisons etc. using @'onField'@.
+                        Example: @sortBy (compare \`onField\`
+                        field#subfield) records@
                      .
                      For a detailed description of usage, see
                      "Data.Record.Field".
