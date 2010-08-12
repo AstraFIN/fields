@@ -21,14 +21,12 @@ import qualified Data.Set          as Set
 import qualified Data.IntSet       as IntSet
 
 -- | Class of collection types that can be indexed into.
---
--- TODO: This should probably be a single-parameter type class with two
--- associated types instead.
-class Indexable a i where
-    type Element a :: *
-    indexGet :: i -> a -> Maybe (Element a)
-    indexSet :: i -> Maybe (Element a) -> a -> a
-    unsafeIndexGet :: i -> a -> Element a
+class Indexable a where
+    type IndexOf   a :: *
+    type ElementOf a :: *
+    indexGet :: IndexOf a -> a -> Maybe (ElementOf a)
+    indexSet :: IndexOf a -> Maybe (ElementOf a) -> a -> a
+    unsafeIndexGet :: IndexOf a -> a -> ElementOf a
     unsafeIndexGet i a = maybe notFound id $ indexGet i a
         where notFound = error "unsafeIndexGet: element not found"
 
@@ -50,8 +48,8 @@ class Indexable a i where
 -- removes the value at @idx@ from the collection, if possible.
 --
 infixl 8 #!
-(#!) :: (Field a, Indexable (Dst a) i) =>
-        a -> i -> Src a :-> Maybe (Element (Dst a))
+(#!) :: (Field a, Indexable (Dst a)) =>
+        a -> IndexOf (Dst a) -> Src a :-> Maybe (ElementOf (Dst a))
 f #! i = lens getter setter
     where getter a = indexGet i (getL (field f) a)
           setter v = modL (field f) (indexSet i v)
@@ -60,60 +58,50 @@ f #! i = lens getter setter
 -- bottom value being returned. Also, the resulting field cannot be used
 -- to remove values.
 infixl 8 #!!
-(#!!) :: (Field a, Indexable (Dst a) i) =>
-         a -> i -> Src a :-> Element (Dst a)
+(#!!) :: (Field a, Indexable (Dst a)) =>
+         a -> IndexOf (Dst a) -> Src a :-> ElementOf (Dst a)
 f #!! i = lens getter setter
     where getter a = unsafeIndexGet i (getL (field f) a)
           setter v = setL (field $ f #! i) (Just v)
 
-instance (Integral i) => Indexable [a] i where
-    type Element [a] = a
-    unsafeIndexGet i as = as !! fromIntegral i
-    indexGet i as = case drop (fromIntegral i) as of
+instance Indexable [a] where
+    type IndexOf   [a] = Int
+    type ElementOf [a] = a
+    unsafeIndexGet i as = as !! i
+    indexGet i as = case drop i as of
                             []    -> Nothing
                             (a:_) -> Just a
     indexSet i Nothing    as = before ++ drop 1 after
-        where (before,after) = splitAt (fromIntegral i) as
+        where (before,after) = splitAt i as
     indexSet i (Just v)   as = before ++ (v : drop 1 after)
-        where (before,after) = splitAt (fromIntegral i) as
+        where (before,after) = splitAt i as
 
-instance (Ord k1, k1 ~ k2) => Indexable (Map.Map k1 a) k2 where
-    type Element (Map.Map k1 a) = a
+instance (Ord k) => Indexable (Map.Map k a) where
+    type IndexOf   (Map.Map k a) = k
+    type ElementOf (Map.Map k a) = a
     unsafeIndexGet = flip (Map.!)
     indexGet = Map.lookup
     indexSet k v = Map.alter (const v) k
 
-instance Indexable (IntMap.IntMap a) Int where
-    type Element (IntMap.IntMap a) = a
+instance Indexable (IntMap.IntMap a) where
+    type IndexOf   (IntMap.IntMap a) = Int
+    type ElementOf (IntMap.IntMap a) = a
     unsafeIndexGet = flip (IntMap.!)
     indexGet = IntMap.lookup
     indexSet k v = IntMap.alter (const v) k
 
-instance (IArray.IArray a e, IArray.Ix i1, i1 ~ i2) =>
-        Indexable (a i1 e) i2 where
-    type Element (a i1 e) = e
-    unsafeIndexGet = flip (IArray.!)
-    indexGet i a
-            | i >= min && i <= max = Just $ a IArray.! i
-            | otherwise            = Nothing
-        where (min, max) = IArray.bounds a
-
-    indexSet i Nothing  a = a -- array elements can't be removed
-    indexSet i (Just v) a
-            | i >= min && i <= max = a IArray.// [(i,v)]
-            | otherwise            = a
-        where (min, max) = IArray.bounds a
-
-instance (Ord a1, a1 ~ a2) => Indexable (Set.Set a1) a2 where
-    type Element (Set.Set a1) = a1
+instance (Ord a) => Indexable (Set.Set a) where
+    type IndexOf   (Set.Set a) = a
+    type ElementOf (Set.Set a) = a
     -- unsafeIndexGet doesn't really make sense here.
     indexGet a set | a `Set.member` set = Just a
                    | otherwise          = Nothing
     indexSet a Nothing  set = Set.delete a set
     indexSet a (Just _) set = Set.insert a set
 
-instance Indexable IntSet.IntSet Int where
-    type Element IntSet.IntSet = Int
+instance Indexable IntSet.IntSet where
+    type   IndexOf IntSet.IntSet = Int
+    type ElementOf IntSet.IntSet = Int
     -- unsafeIndexGet doesn't really make sense here.
     indexGet a set | a `IntSet.member` set = Just a
                    | otherwise             = Nothing
