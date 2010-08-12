@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -18,6 +20,8 @@ module Data.Record.Field.Combinators
     , (*#)
     , (=*)
       -- * Assignment and modification in a State monad.
+    , EffectAssignment(..)
+    , This(..)
     , (<=:)
     , (<=~)
       -- * Utility combinator for comparisons etc.
@@ -105,23 +109,47 @@ infixl 8 =*
 (=*) :: (Field a) => a -> [Dst a] -> [Src a :-> Src a]
 a =* vs = [ a =: v | v <- vs ]
 
--- | Infix assignment for the State monad.
+-- | Class for customizing where you can do effectful assignment. @m@
+-- will probably usually be a @'Monad'@, but it can be any type
+-- constructor.
 --
--- > (field1, field2) <=: (value1, value2)
+-- > a :: a
+-- > f :: b :-> v
+-- > v :: v
+-- > a .# f <=: v   ::   m (ReturnType a b m)
 --
-infix 3 <=:
-(<=:) :: (MonadState (Src a) m, Field a) =>
-         a -> Dst a -> m ()
-a <=: v = modify (.# a =: v)
+class EffectAssignment a b (m :: * -> *) where
+    type ReturnType a b m :: *
+    effectAssign :: (Field f, Src f ~ b, Dst f ~ v) =>
+        f ->  v       -> a -> m (ReturnType a b m)
+    effectModify :: (Field f, Src f ~ b, Dst f ~ v) =>
+        f -> (v -> v) -> a -> m (ReturnType a b m)
+    effectModify = error "effectModify not defined"
 
--- | Infix modification for the State monad.
+infixl 8 <=:
+-- | Infix operator for effectful assignment.
+(<=:) :: (EffectAssignment a (Src f) m, Field f) =>
+          f ->  Dst f -> a :-> m (ReturnType a (Src f) m)
+f <=: v = lens (effectAssign f v) (cantSet "effectAssign")
+
+infixl 8 <=~
+-- | Infix operator for effectful modification.
+(<=~) :: (EffectAssignment a (Src f) m, Field f) =>
+          f -> (Dst f -> Dst f) -> a :-> m (ReturnType a (Src f) m)
+f <=~ g = lens (effectModify f g) (cantSet "effectModify")
+
+-- | Effectful assignment for the State monad.
 --
--- > (field1, field2) <=~ (f, g)
+-- > f :: s :-> v
+-- > v :: v
+-- > This .# f <=: v   ::   (MonadState s m) => m ()
 --
-infix 3 <=~
-(<=~) :: (MonadState (Src a) m, Field a) =>
-         a -> (Dst a -> Dst a) -> m ()
-a <=~ f = modify (.# a =~ f)
+data This = This
+
+instance (MonadState s m) => EffectAssignment This s m where
+    type ReturnType This s m = ()
+    effectAssign f v This = modify $ \s -> s .# f =: v
+    effectModify f g This = modify $ \s -> s .# f =~ g
 
 -- | Utility combinator in the manner of @'Data.Function.on'@.
 --
