@@ -226,8 +226,7 @@
 -- usually result in an @'error'@.
 --
 -- Currently, instances are provided for @[a]@, @'Data.Map'@,
--- @'Data.IntMap'@, @'Data.Array.IArray'@, @'Data.Set'@ and
--- @'Data.IntSet'@.
+-- @'Data.IntMap'@, @'Data.Set'@ and @'Data.IntSet'@.
 module Data.Record.Field
     ( module Data.Record.Field.Basic
     , module Data.Record.Field.Tuple
